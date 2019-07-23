@@ -106,7 +106,7 @@ struct cy8c95xx_chip {
 	
 	uint8_t		inReg_shadow[8];
 	uint8_t		outReg_shadow[8];
-	uint8_t		intMaskReg_shadow[8];
+	uint8_t		irqMaskReg_shadow[8];
 	uint8_t		dirReg_shadow[8];
 	
 	uint8_t		pullUpReg_shadow[8];
@@ -119,11 +119,9 @@ struct cy8c95xx_chip {
 
 #ifdef CONFIG_GPIO_CY8C95XX_IRQ
 	struct mutex		irq_lock;
-	uint8_t			irq_mask;
-	uint8_t			irq_mask_cur;
-	uint8_t			irq_trig_raise;
-	uint8_t			irq_trig_fall;
-	uint8_t			irq_features;
+	uint8_t			irq_mask_cur[8];
+	uint8_t			irq_trig_raise[8];
+	uint8_t			irq_trig_fall[8];
 #endif
 };
 
@@ -300,7 +298,6 @@ int _cy8c95xx_gpio_set_config(struct gpio_chip *gc, unsigned off, enum pin_confi
 	
 	int8_t port = -1;
 	int8_t number = -1;
-	uint8_t finalDir = 0;
 	int ret = 0;
 	
 	cy8c95xx_gpio_offset2port(off, &port, &number);
@@ -439,16 +436,12 @@ out:
 
 int cy8c95xx_gpio_set_config(struct gpio_chip *gc, unsigned off, unsigned long config)
 {
-	struct cy8c95xx_chip *chip = gpiochip_get_data(gc);
+	//struct cy8c95xx_chip *chip = gpiochip_get_data(gc);
 	
 	int8_t port = -1;
 	int8_t number = -1;
-	uint8_t finalDir = 0;
-	int ret = 0;
 	
 	cy8c95xx_gpio_offset2port(off, &port, &number);
-	
-	uint8_t mask = 1 << number;
 	
 	enum pin_config_param param = pinconf_to_config_param(config);
 	int argument = pinconf_to_config_argument(config);
@@ -472,8 +465,8 @@ static int cy8c95xx_gpio_get_value(struct gpio_chip *gc, unsigned off)
 	
 	mutex_lock(&chip->lock);
 	
-	dev_warn(&(chip->client)->dev, "get_value   port=%x    mask=%x  intMask=%x", port, mask, chip->intMaskReg_shadow[port]);
-	if(chip->intMaskReg_shadow[port] & mask){		// if interrupt disabled for this pin, get value from i2c, else return shadow value which should be up to date
+	dev_warn(&(chip->client)->dev, "get_value   port=%x    mask=%x  intMask=%x", port, mask, chip->irqMaskReg_shadow[port]);
+	if(chip->irqMaskReg_shadow[port] & mask){		// if interrupt disabled for this pin, get value from i2c, else return shadow value which should be up to date
 		
 		uint8_t data = 0x00;
 		ret = cy8c95xx_readReg(chip, INPUT_REG_BASE, port, &data, 1);
@@ -686,6 +679,264 @@ static struct cy8c95xx_platform_data *of_gpio_cy8c95xx(struct device *dev)
 	return pdata;
 }
 
+#ifdef CONFIG_GPIO_CY8C95XX_IRQ
+
+static void cy8c95xx_irq_update_mask(struct cy8c95xx_chip *chip)
+{
+	mutex_lock(&chip->lock);
+	
+	for(int i=0; i<8; i++){
+		if(chip->irqMaskReg_shadow[i] != chip->irq_mask_cur[i]){
+			ret = cy8c95xx_writeReg(chip, PORT_CONFIG_REG_BASE, PORT_SELECT_OFFSET, i);
+			ret += cy8c95xx_writeReg(chip, PORT_CONFIG_REG_BASE, INTERRUPT_MASK_OFFSET, chip->irq_mask_cur[i]);
+			if(ret == 0){
+				chip->irqMaskReg_shadow[i] = chip->irq_mask_cur[i];
+			}else{
+				dev_err(&(chip->client)->dev, "%s failed, port %d, %d\n", "interrupt mask updating", i, ret);
+			}
+		}
+	}
+
+	mutex_unlock(&chip->lock);
+}
+
+static void cy8c95xx_irq_mask(struct irq_data *d)
+{
+	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
+	struct cy8c95xx_chip *chip = gpiochip_get_data(gc);
+	
+	uint8_t port = -1;
+	int8_t number = -1;
+	
+	cy8c95xx_gpio_offset2port(d->hwirq, &port, &number);
+	
+	uint8_t mask = 1 << number;
+
+	chip->irq_mask_cur[port] |= mask;
+}
+
+static void cy8c95xx_irq_unmask(struct irq_data *d)
+{
+	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
+	struct cy8c95xx_chip *chip = gpiochip_get_data(gc);
+	
+	uint8_t port = -1;
+	int8_t number = -1;
+	
+	cy8c95xx_gpio_offset2port(d->hwirq, &port, &number);
+	
+	uint8_t mask = 1 << number;
+
+	chip->irq_mask_cur[port] &= ~(mask);
+}
+
+static void cy8c95xx_irq_bus_lock(struct irq_data *d)
+{
+	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
+	struct cy8c95xx_chip *chip = gpiochip_get_data(gc);
+
+	mutex_lock(&chip->irq_lock);
+	memcpy(chip->irq_mask_cur, chip->irqMaskReg_shadow, 8);
+}
+
+static void cy8c95xx_irq_bus_sync_unlock(struct irq_data *d)
+{
+	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
+	struct cy8c95xx_chip *chip = gpiochip_get_data(gc);
+	uint16_t new_irqs;
+	uint16_t level;
+
+	cy8c95xx_irq_update_mask(chip);
+
+	// No specific need for our pin to be in INPUT mode...
+	/*
+	new_irqs = chip->irq_trig_fall | chip->irq_trig_raise;
+	while (new_irqs) {
+		level = __ffs(new_irqs);
+		cy8c95xx_gpio_direction_input(&chip->gpio_chip, level);
+		new_irqs &= ~(1 << level);
+	}
+	*/
+
+	mutex_unlock(&chip->irq_lock);
+}
+
+static int cy8c95xx_irq_set_type(struct irq_data *d, unsigned int type)
+{
+	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
+	struct cy8c95xx_chip *chip = gpiochip_get_data(gc);
+	uint16_t off = d->hwirq;
+	
+	
+	int8_t port = -1;
+	int8_t number = -1;
+	uint8_t mask = 0;
+	
+	cy8c95xx_gpio_offset2port(off, &port, &number);
+	
+	mask = 1 << number;
+
+	if (!(type & IRQ_TYPE_EDGE_BOTH)) {
+		dev_err(&chip->client->dev, "irq %d: unsupported type %d\n",
+			d->irq, type);
+		return -EINVAL;
+	}
+
+	if (type & IRQ_TYPE_EDGE_FALLING)
+		chip->irq_trig_fall[port] |= mask;
+	else
+		chip->irq_trig_fall[port] &= ~mask;
+
+	if (type & IRQ_TYPE_EDGE_RISING)
+		chip->irq_trig_raise[port] |= mask;
+	else
+		chip->irq_trig_raise[port] &= ~mask;
+
+	return 0;
+}
+
+static int cy8c95xx_irq_set_wake(struct irq_data *data, unsigned int on)
+{
+	struct cy8c95xx_chip *chip = irq_data_get_irq_chip_data(data);
+
+	irq_set_irq_wake(chip->client->irq, on);
+	return 0;
+}
+
+static struct irq_chip cy8c95xx_irq_chip = {
+	.name			= "cy8c95xx",
+	.irq_mask		= cy8c95xx_irq_mask,
+	.irq_unmask		= cy8c95xx_irq_unmask,
+	.irq_bus_lock		= cy8c95xx_irq_bus_lock,
+	.irq_bus_sync_unlock	= cy8c95xx_irq_bus_sync_unlock,
+	.irq_set_type		= cy8c95xx_irq_set_type,
+	.irq_set_wake		= cy8c95xx_irq_set_wake,
+};
+
+static uint8_t * cy8c95xx_irq_pending(struct cy8c95xx_chip *chip)
+{
+	uint8_t pending[8] = {};
+	int ret;
+
+	uint8_t irqStatus[8] = 0x00;
+#ifdef FAST_INTERRUPT
+	for(int i=0; i<8; i++){
+		if(chip->irqMaskReg_shadow[i] != 0xff){ // if there is some interrupt activated on this port
+			ret = cy8c95xx_readReg(chip, INTERRUPT_REG_BASE, i, &irqStatus[i], 1);
+			if(ret){
+				dev_err(&(chip->client)->dev, "%s failed, port %d, %d\n", "interrupt pending check", i, ret);
+			}
+			
+			if(irqStatus[i]){ // if there is a interrupt flag on this port
+				ret = cy8c95xx_readReg(chip, INPUT_REG_BASE, i, &chip->inReg_shadow[i], 1); // update input shadow register
+				if(ret){
+					dev_err(&(chip->client)->dev, "%s failed, port %d, %d\n", "interrupt input port read", i, ret);
+				}
+				
+			}
+		}
+	}
+#else
+	ret = cy8c95xx_readReg(chip, INTERRUPT_REG_BASE, 0, &intStatus, 8);
+	if(ret){
+		return 0;
+	}
+	
+	ret = cy8c95xx_readReg(chip, INPUT_REG_BASE, 0, chip->inReg_shadow, 8);
+	if(ret){
+		return 0;
+	}
+#endif
+	
+	for(int i=0; i<8; i++){
+		pending[i] = (irqStatus[i] & chip->irq_trig_fall) & ~(chip->inReg_shadow[i]);
+		pending[i] |= (irqStatus[i] & chip->irq_trig_raise) & (chip->inReg_shadow[i]);
+	}
+	
+	return pending;
+}
+
+static irqreturn_t cy8c95xx_irq_handler(int irq, void *devid)
+{
+	struct cy8c95xx_chip *chip = devid;
+	uint8_t * pending[8];
+	uint8_t level;
+
+	pending = cy8c95xx_irq_pending(chip);
+
+	if (!pending)
+		return IRQ_HANDLED;
+
+	for(int i=0; i<8; i++){
+		do {
+			level = __ffs(pending[i]);
+			level += i*8;
+			handle_nested_irq(irq_find_mapping(chip->gpio_chip.irqdomain,
+							level));
+
+			pending[i] &= ~(1 << level);
+		} while(pending[i]);
+	}
+
+	return IRQ_HANDLED;
+}
+
+static int cy8c95xx_irq_setup(struct cy8c95xx_chip *chip,
+			     const struct i2c_device_id *id)
+{
+	struct i2c_client *client = chip->client;
+	struct cy8c95xx_platform_data *pdata = dev_get_platdata(&client->dev);
+	int irq_base = 0;
+	int ret;
+
+	if (((pdata && pdata->irq_base) || client->irq)
+			&& has_irq != INT_NONE) {
+		if (pdata)
+			irq_base = pdata->irq_base;
+
+		mutex_init(&chip->irq_lock);
+
+		ret = devm_request_threaded_irq(&client->dev, client->irq,
+				NULL, cy8c95xx_irq_handler, IRQF_ONESHOT |
+				IRQF_TRIGGER_RISING | IRQF_SHARED,
+				dev_name(&client->dev), chip);
+		if (ret) {
+			dev_err(&client->dev, "failed to request irq %d\n",
+				client->irq);
+			return ret;
+		}
+		ret =  gpiochip_irqchip_add_nested(&chip->gpio_chip,
+						   &cy8c95xx_irq_chip,
+						   irq_base,
+						   handle_simple_irq,
+						   IRQ_TYPE_NONE);
+		if (ret) {
+			dev_err(&client->dev,
+				"could not connect irqchip to gpiochip\n");
+			return ret;
+		}
+		gpiochip_set_nested_irqchip(&chip->gpio_chip,
+					    &cy8c95xx_irq_chip,
+					    client->irq);
+	}
+
+	return 0;
+}
+
+#else /* CONFIG_GPIO_CY8C95XX_IRQ */
+static int cy8c95xx_irq_setup(struct cy8c95xx_chip *chip,
+			     const struct i2c_device_id *id)
+{
+	struct i2c_client *client = chip->client;
+	struct cy8c95xx_platform_data *pdata = dev_get_platdata(&client->dev);
+
+	if ((pdata && pdata->irq_base) || client->irq)
+		dev_warn(&client->dev, "interrupt support not compiled in\n");
+
+	return 0;
+}
+#endif
+
 static int cy8c95xx_setup_gpio(struct cy8c95xx_chip *chip,
 					const struct i2c_device_id *id,
 					unsigned gpio_start)
@@ -756,7 +1007,7 @@ static int cy8c95xx_probe(struct i2c_client *client,
 	ret = cy8c95xx_writeReadReg(chip, CONFIG_REG_BASE, COMMAND_OFFSET, &writeData, 1, readData, 146);
 	
 	memcpy(chip->outReg_shadow, readData, 8);
-	memcpy(chip->intMaskReg_shadow, &readData[0x08], 8);
+	memcpy(chip->irqMaskReg_shadow, &readData[0x08], 8);
 	memcpy(chip->dirReg_shadow, &readData[0x20], 8);
 	
 	ret = cy8c95xx_readReg(chip, INPUT_REG_BASE, PORT0_OFFSET, chip->inReg_shadow, 8);
@@ -784,7 +1035,7 @@ static int cy8c95xx_probe(struct i2c_client *client,
 	ret = cy8c95xx_irq_setup(chip, id);
 	if (ret) {
 		gpiochip_remove(&chip->gpio_chip);
-		goto out_failed;
+		goto out;
 	}
 	
 
