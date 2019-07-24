@@ -684,6 +684,7 @@ static struct cy8c95xx_platform_data *of_gpio_cy8c95xx(struct device *dev)
 static void cy8c95xx_irq_update_mask(struct cy8c95xx_chip *chip)
 {
 	mutex_lock(&chip->lock);
+	int ret = 0;
 	
 	for(int i=0; i<8; i++){
 		if(chip->irqMaskReg_shadow[i] != chip->irq_mask_cur[i]){
@@ -743,20 +744,8 @@ static void cy8c95xx_irq_bus_sync_unlock(struct irq_data *d)
 {
 	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
 	struct cy8c95xx_chip *chip = gpiochip_get_data(gc);
-	uint16_t new_irqs;
-	uint16_t level;
 
 	cy8c95xx_irq_update_mask(chip);
-
-	// No specific need for our pin to be in INPUT mode...
-	/*
-	new_irqs = chip->irq_trig_fall | chip->irq_trig_raise;
-	while (new_irqs) {
-		level = __ffs(new_irqs);
-		cy8c95xx_gpio_direction_input(&chip->gpio_chip, level);
-		new_irqs &= ~(1 << level);
-	}
-	*/
 
 	mutex_unlock(&chip->irq_lock);
 }
@@ -813,12 +802,11 @@ static struct irq_chip cy8c95xx_irq_chip = {
 	.irq_set_wake		= cy8c95xx_irq_set_wake,
 };
 
-static uint8_t * cy8c95xx_irq_pending(struct cy8c95xx_chip *chip)
+static void cy8c95xx_irq_pending(struct cy8c95xx_chip *chip, uint8_t pending[8])
 {
-	uint8_t pending[8] = {};
 	int ret;
 
-	uint8_t irqStatus[8] = 0x00;
+	uint8_t irqStatus[8] = {0};
 #ifdef FAST_INTERRUPT
 	for(int i=0; i<8; i++){
 		if(chip->irqMaskReg_shadow[i] != 0xff){ // if there is some interrupt activated on this port
@@ -837,46 +825,44 @@ static uint8_t * cy8c95xx_irq_pending(struct cy8c95xx_chip *chip)
 		}
 	}
 #else
-	ret = cy8c95xx_readReg(chip, INTERRUPT_REG_BASE, 0, &intStatus, 8);
+	ret = cy8c95xx_readReg(chip, INTERRUPT_REG_BASE, 0, irqStatus, 8);
 	if(ret){
-		return 0;
+		return;
 	}
 	
 	ret = cy8c95xx_readReg(chip, INPUT_REG_BASE, 0, chip->inReg_shadow, 8);
 	if(ret){
-		return 0;
+		return;
 	}
 #endif
 	
 	for(int i=0; i<8; i++){
-		pending[i] = (irqStatus[i] & chip->irq_trig_fall) & ~(chip->inReg_shadow[i]);
-		pending[i] |= (irqStatus[i] & chip->irq_trig_raise) & (chip->inReg_shadow[i]);
+		pending[i] = (irqStatus[i] & chip->irq_trig_fall[i]) & ~(chip->inReg_shadow[i]);
+		pending[i] |= (irqStatus[i] & chip->irq_trig_raise[i]) & (chip->inReg_shadow[i]);
 	}
-	
-	return pending;
 }
 
 static irqreturn_t cy8c95xx_irq_handler(int irq, void *devid)
 {
 	struct cy8c95xx_chip *chip = devid;
-	uint8_t * pending[8];
+	uint8_t pending[8] = {0};
 	uint8_t level;
 
-	pending = cy8c95xx_irq_pending(chip);
-
-	if (!pending)
-		return IRQ_HANDLED;
+	cy8c95xx_irq_pending(chip, pending);
 
 	for(int i=0; i<8; i++){
+		//dev_err(&(chip->client)->dev, "%s, port %d pending: 0x%x    mask: 0x%x\n", "interrupt handler", i, pending[i], chip->irqMaskReg_shadow[i]);
 		do {
 			level = __ffs(pending[i]);
-			level += i*8;
 			handle_nested_irq(irq_find_mapping(chip->gpio_chip.irqdomain,
-							level));
+							level + i*8));
 
 			pending[i] &= ~(1 << level);
 		} while(pending[i]);
+		//dev_err(&(chip->client)->dev, "%s, port %d pending: 0x%x    mask: 0x%x\n", "interrupt handler", i, pending[i], chip->irqMaskReg_shadow[i]);
 	}
+	
+	//dev_err(&(chip->client)->dev, "%s\n", "interrupt handler done");
 
 	return IRQ_HANDLED;
 }
@@ -889,8 +875,7 @@ static int cy8c95xx_irq_setup(struct cy8c95xx_chip *chip,
 	int irq_base = 0;
 	int ret;
 
-	if (((pdata && pdata->irq_base) || client->irq)
-			&& has_irq != INT_NONE) {
+	if (((pdata && pdata->irq_base) || client->irq)) {
 		if (pdata)
 			irq_base = pdata->irq_base;
 

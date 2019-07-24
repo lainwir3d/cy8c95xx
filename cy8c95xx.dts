@@ -29,6 +29,10 @@
 						<&pinctrl2 10 0 0>,
 						<&pinctrl1 15 0 10>,
 						<&pinctrl2 25 0 0>;*/
+				interrupt-controller;
+				#interrupt-cells = <2>;
+				interrupt-parent = <&gpio>;
+				interrupts = <21 1>;  // 1 = edge rising
 			};
 		};
 	};

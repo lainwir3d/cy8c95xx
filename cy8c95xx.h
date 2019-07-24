@@ -2,6 +2,9 @@
 #ifndef __LINUX_I2C_CY8C95XX_H
 #define __LINUX_I2C_CY8C95XX_H
 
+#define CONFIG_GPIO_CY8C95XX_IRQ
+#define FAST_INTERRUPT
+
 /* platform data for the MAX732x 8/16-bit I/O expander driver */
 
 struct cy8c95xx_platform_data {
