@@ -540,10 +540,21 @@ static void cy8c95xx_gpio_set_multiple(struct gpio_chip *gc, unsigned long *mask
 		portMask = (*mask >> (8*i));
 		portBits = (*bits >> (8*i));
 		
-		finalVal = chip->outReg_shadow[i] & (~portMask);
-		finalVal = finalVal | portBits;
-		
-		//TODO finish this, do not forget mutex
+		if(portMask){
+			finalVal = chip->outReg_shadow[i] & (~portMask);
+			finalVal = finalVal | portBits;
+			
+			mutex_lock(&chip->lock);
+			
+			ret = cy8c95xx_writeReg(chip, OUTPUT_REG_BASE, i, finalVal);
+			if (ret){
+				dev_err(&(chip->client)->dev, "%s failed, port %d mask 0x%x bits 0x%x  finalVal 0x%x, %d\n", "gpio_set_value_multiple", i, portMask, portBits, finalVal, ret);
+			}else{
+				chip->outReg_shadow[i] = finalVal;
+			}
+			
+			mutex_unlock(&chip->lock);
+		}
 	}	
 }
 
