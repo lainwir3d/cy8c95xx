@@ -14,8 +14,8 @@ MODULE_AUTHOR("Richard Rondu <rondu.richard@gmail.com>");
 MODULE_DESCRIPTION("CY8C95XX GPIO expander kernel module.");
 MODULE_VERSION("0.9");
 
-#define PORT_OUTPUT	0x0	/* 'O' Push-Pull, Output Only */
-#define PORT_INPUT	0x1	/* 'I' Input Only */
+#define PORT_OUTPUT	0x0	
+#define PORT_INPUT	0x1	
 
 #define PWM_CLK_32KHZ 0x00
 #define PWM_CLK_24MHZ 0x01
@@ -24,15 +24,11 @@ MODULE_VERSION("0.9");
 #define PWM_CLK_367_6_HZ 0x04
 #define PWM_CLK_PREVIOUS 0x05
 
-#define INT_NONE	0x0	/* No interrupt capability */
-#define INT_NO_MASK	0x1	/* Has interrupts, no mask */
-
 #define PWM_DISABLED 0x0
 #define PWM_ENABLED 0x1
 
 #define INVERSION_DISABLED 0x0
 #define INVERSION ENABLED 0x1
-
 
 #define INPUT_REG_BASE 0x00
 #define OUTPUT_REG_BASE 0x08
