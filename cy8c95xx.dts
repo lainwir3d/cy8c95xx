@@ -1,9 +1,7 @@
 /*
- * Author: Manivannan Sadhasivam
- * Copyright (c) 2017 Linaro Inc.
- * All rights reserved.
+ * Author: Richard Rondu
  *
- * Sample device tree overlay for MS8607- Humidity sensor
+ * Sample device tree overlay for Cypress CY8C95XX I/O expanders.
  */
 
 /dts-v1/;
@@ -22,42 +20,15 @@
 			cy8c95xx: cy8c95xx@20 {
                                 compatible = "cypress,cy8c95xx";
                                 reg = <0x20>;
+                                
                                 gpio-controller;
                                 #gpio-cells = <2>;
-				//gpio-base = <100>
-				/*gpio-ranges =	<&pinctrl1 0 20 10>,
-						<&pinctrl2 10 0 0>,
-						<&pinctrl1 15 0 10>,
-						<&pinctrl2 25 0 0>;*/
-				interrupt-controller;
-				#interrupt-cells = <2>;
-				interrupt-parent = <&gpio>;
-				interrupts = <21 1>;  // 1 = edge rising
+				
+                                interrupt-controller;
+                                interrupt-parent = <&gpio>;
+                                #interrupt-cells = <2>;
+                                interrupts = <21 1>;  // 1 = edge rising
 			};
-		};
-	};
-
-	fragment@1 {
-		target = <&leds>;
-		__overlay__ {
-			status = "okay";
-			compatible = "gpio-leds";
-			led1-red {
-				label = "red";
-				linux,default-trigger = "none";
-				gpios = <&cy8c95xx 1 0>;
-			};
-			led1-blue {
-				label = "blue";
-				linux,default-trigger = "none";
-				gpios = <&cy8c95xx 2 0>;
-			};
-			led1-green {
-				label = "green";
-				linux,default-trigger = "none";
-				gpios = <&cy8c95xx 3 0>;
-			};
-
 		};
 	};
 };
