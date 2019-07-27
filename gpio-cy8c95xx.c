@@ -951,7 +951,7 @@ static int cy8c95xx_setup_gpio(struct cy8c95xx_chip *chip,
 	gc->can_sleep = true;
 
 	gc->base = gpio_start;
-	gc->ngpio = 60;
+	gc->ngpio = 64;
 	gc->label = chip->client->name;
 	gc->parent = &chip->client->dev;
 	gc->owner = THIS_MODULE;

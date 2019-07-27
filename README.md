@@ -7,6 +7,15 @@ Currently only tested on CY8C9540a.
 
 The driver makes no distinction between the three components, it just declares the maximum theorical number of GPIOs (8x8 bits port = 64 pins) and consider the user knows the platform used / what to do.
 
+Port 0 is GPIO numbers 0 to 7.
+Port 1 is 8 to 15.
+Port 2 is 16 to 23.
+Port 3 is 24 to 31.
+Port 4 is 32 to 39.
+Port 5 is 40 to 47.
+Port 6 is 48 to 55.
+Port 7 is 56 to 63.
+
 
 ## Supported features:
   - GPIOs:
