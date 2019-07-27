@@ -10,9 +10,9 @@
 #include "cy8c95xx.h"
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Richard Rondu");
+MODULE_AUTHOR("Richard Rondu <rondu.richard@gmail.com>");
 MODULE_DESCRIPTION("CY8C95XX GPIO expander kernel module.");
-MODULE_VERSION("0.01");
+MODULE_VERSION("0.9");
 
 #define PORT_OUTPUT	0x0	/* 'O' Push-Pull, Output Only */
 #define PORT_INPUT	0x1	/* 'I' Input Only */
