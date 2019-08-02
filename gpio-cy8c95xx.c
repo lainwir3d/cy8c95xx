@@ -993,7 +993,7 @@ static ssize_t cy8c95xx_store_config_to_ee_por_default(struct device *dev, struc
 				ret = len;
 			}
 			
-		}else if(strncmp(buf, "restore_default", 15) == 0){
+		}else if(strncmp(buf, "load_default", 15) == 0){
 			ret = cy8c95xx_writeReg(chip, CONFIG_REG_BASE, COMMAND_OFFSET, 0x07);
 			
 			if(ret){
