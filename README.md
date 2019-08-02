@@ -29,6 +29,10 @@ Port 7 is 56 to 63.
     - Pull up
     - Strong push / pull
   - Interrupts
+  - EEPROM:
+    - Save current configuration to default
+    - Load default configuration to current
+    - Restore factory default (does not apply factory config)
     
     
 ## UNSUPPORTED features:
@@ -39,8 +43,36 @@ Port 7 is 56 to 63.
     - "Slow strong" (see datasheet)
   - EEPROM: 
     - Reading / writing
-    - Config save / load
   - Watchdog
+  
+## Managing default configuration in EEPROM
+
+An attribute is available at "/sys/bus/i2c/devices/<device_identifier>/ee_por_default".
+
+You can write several commands to it:
+  - save_current: Save current / running device configuration to eeprom default (configuration to be used on power up).
+  - restore_factory: Restore factory device configuration to eeprom default (configuration to be used on power up, this __WILL NOT__ change current running configuration).
+  - load_default: Load default device configuration to current / running configuration.
+  
+
+You can read default configuration store in eeprom by simply reading the file.
+  
+An helper python script is available to help read default configuration from stdin: _decode_por_default.py_
+
+  
+### Example: restore __AND__ load factory default
+
+```
+echo "restore_factory" > /sys/bus/i2c/devices/1-0020/ee_por_default
+echo "load_default" > /sys/bus/i2c/devices/1-0020/ee_por_default
+```
+
+### Example: Read default configuration in a human readable manner
+
+```
+python3 /mnt/cy8c95xx/decode_por_default.py < /sys/bus/i2c/devices/1-0020/ee_por_default
+```
+
   
 ## DTS example file (raspberry pi zero w)
 
