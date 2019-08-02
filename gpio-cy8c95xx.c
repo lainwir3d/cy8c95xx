@@ -929,6 +929,93 @@ static int cy8c95xx_irq_setup(struct cy8c95xx_chip *chip,
 }
 #endif
 
+static ssize_t cy8c95xx_show_ee_por_default(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	uint8_t writeData = 0x04; //read eeprom default
+	uint8_t readData[146] = {};
+	
+	int ret = 0;
+	
+	struct cy8c95xx_chip *chip = dev_get_drvdata(dev);
+	
+	if(chip){
+		mutex_lock(&chip->lock);
+		
+		ret = cy8c95xx_writeReadReg(chip, CONFIG_REG_BASE, COMMAND_OFFSET, &writeData, 1, readData, 146);
+	
+		if(ret){
+			dev_warn(&(chip->client)->dev, "read ee por default failed, %d\n", ret);
+			ret = sprintf(buf, "error reading eeprom POR default");
+		}else{
+			int off=0;
+			for(int i=0; i<146; i++){
+				off += sprintf(buf+off, "0x%x ", readData[i]);
+			}
+			off += sprintf(buf+off, "\n");
+			
+			ret = off;
+		}
+		
+		mutex_unlock(&chip->lock);
+	}
+	
+	
+	return ret;
+}
+
+static ssize_t cy8c95xx_store_config_to_ee_por_default(struct device *dev, struct device_attribute *attr, const char *buf, size_t len)        //echo Command time,This function will be called
+{
+	int ret = 0;
+	
+	struct cy8c95xx_chip *chip = dev_get_drvdata(dev);
+	
+	if(chip){
+		mutex_lock(&chip->lock);
+		
+		if(strncmp(buf, "save_current", 12) == 0){
+			
+			ret = cy8c95xx_writeReg(chip, CONFIG_REG_BASE, COMMAND_OFFSET, 0x01);
+			
+			if(ret){
+				dev_warn(&(chip->client)->dev, "save_current ee por default failed, %d\n", ret);
+				ret = -EIO;
+			}else{
+				ret = len;
+			}
+			
+		}else if(strncmp(buf, "restore_factory", 15) == 0){
+			ret = cy8c95xx_writeReg(chip, CONFIG_REG_BASE, COMMAND_OFFSET, 0x02);
+			
+			if(ret){
+				dev_warn(&(chip->client)->dev, "restore_factory ee por default failed, %d\n", ret);
+				ret = -EIO;
+			}else{
+				ret = len;
+			}
+			
+		}else if(strncmp(buf, "restore_default", 15) == 0){
+			ret = cy8c95xx_writeReg(chip, CONFIG_REG_BASE, COMMAND_OFFSET, 0x07);
+			
+			if(ret){
+				dev_warn(&(chip->client)->dev, "restore_default ee por default failed, %d\n", ret);
+				ret = -EIO;
+			}else{
+				ret = len;
+			}
+			
+		}else{
+			ret = -EIO;
+		}
+		
+		mutex_unlock(&chip->lock);
+	}
+	
+	
+	return ret;
+}
+
+static DEVICE_ATTR(ee_por_default, S_IWUSR|S_IRUSR, cy8c95xx_show_ee_por_default, cy8c95xx_store_config_to_ee_por_default);
+
 static int cy8c95xx_setup_gpio(struct cy8c95xx_chip *chip,
 					const struct i2c_device_id *id,
 					unsigned gpio_start)
@@ -1037,6 +1124,9 @@ static int cy8c95xx_probe(struct i2c_client *client,
 		if (ret < 0)
 			dev_warn(&client->dev, "setup failed, %d\n", ret);
 	}
+	
+	dev_set_drvdata(&client->dev, chip);
+	device_create_file(&client->dev, &dev_attr_ee_por_default);
 
 	i2c_set_clientdata(client, chip);
 	ret = 0;
