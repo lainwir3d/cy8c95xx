@@ -638,15 +638,11 @@ static int cy8c95xx_gpio_direction_input(struct gpio_chip *gc, unsigned off)
 #endif
 
 	/*
-	 * Open-drain pins must be set to high impedance (which is
-	 * equivalent to output-high) to be turned into an input.
-	 */
-	//if(port == -1) goto out_failed; // should not be necessary
-	
 	ret = _cy8c95xx_gpio_set_config(gc, off, PIN_CONFIG_BIAS_HIGH_IMPEDANCE, 0);
 	if (ret){
 		goto out;
 	}
+	*/
 	
 	mutex_lock(&chip->lock);
 	
@@ -692,10 +688,12 @@ static int cy8c95xx_gpio_direction_output(struct gpio_chip *gc, unsigned off, in
 	dev_warn(&(chip->client)->dev, "set_direction_output  port=%x    mask=%x", port, mask);
 #endif
 	
+	/*
 	ret = _cy8c95xx_gpio_set_config(gc, off, PIN_CONFIG_DRIVE_PUSH_PULL, 0);
 	if (ret){
 		goto out;
 	}
+	*/
 	
 	mutex_lock(&chip->lock);
 	
