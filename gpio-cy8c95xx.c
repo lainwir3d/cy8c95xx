@@ -300,6 +300,10 @@ int _cy8c95xx_gpio_set_config(struct gpio_chip *gc, unsigned off, enum pin_confi
 	
 	uint8_t mask = 1 << number;
 	
+#ifdef DEBUG
+		dev_warn(&(chip->client)->dev, "_set_config  param=%x    arg=%x    port=%x    mask=%x", param, argument, port, mask);
+#endif
+    
 	mutex_lock(&chip->lock);
 	
 	switch (param) {
@@ -327,6 +331,10 @@ int _cy8c95xx_gpio_set_config(struct gpio_chip *gc, unsigned off, enum pin_confi
 		chip->StrongReg_shadow[port] &= ~mask; 
 		chip->SlowStrongReg_shadow[port] &= ~mask; 
 		chip->HighZReg_shadow[port] = finalDrive;
+        
+#ifdef DEBUG
+		dev_warn(&(chip->client)->dev, "_set_config  HighZ");
+#endif
 		
 		break;
 	}
@@ -355,6 +363,10 @@ int _cy8c95xx_gpio_set_config(struct gpio_chip *gc, unsigned off, enum pin_confi
 		chip->SlowStrongReg_shadow[port] &= ~mask; 
 		chip->HighZReg_shadow[port] &= ~mask;
 		
+#ifdef DEBUG
+		dev_warn(&(chip->client)->dev, "_set_config  Pull down");
+#endif
+		
 		break;
 	}
 	case PIN_CONFIG_BIAS_PULL_UP:
@@ -382,12 +394,21 @@ int _cy8c95xx_gpio_set_config(struct gpio_chip *gc, unsigned off, enum pin_confi
 		chip->SlowStrongReg_shadow[port] &= ~mask; 
 		chip->HighZReg_shadow[port] &= ~mask;
 		
-		break;
+#ifdef DEBUG
+		dev_warn(&(chip->client)->dev, "_set_config  Pull up");
+#endif
 		
+		break;
 	}
 	case PIN_CONFIG_DRIVE_OPEN_DRAIN:
+#ifdef DEBUG
+		dev_warn(&(chip->client)->dev, "_set_config  Open drain");
+#endif
 		break;
 	case PIN_CONFIG_DRIVE_OPEN_SOURCE:
+#ifdef DEBUG
+		dev_warn(&(chip->client)->dev, "_set_config  Open source");
+#endif
 		break;
 	case PIN_CONFIG_DRIVE_PUSH_PULL:
 	{
@@ -414,11 +435,16 @@ int _cy8c95xx_gpio_set_config(struct gpio_chip *gc, unsigned off, enum pin_confi
 		chip->SlowStrongReg_shadow[port] &= ~mask; 
 		chip->HighZReg_shadow[port] &= ~mask;
 		
-		break;
+#ifdef DEBUG
+		dev_warn(&(chip->client)->dev, "_set_config  Strong / push pull");
+#endif
 		
+		break;
 	}
 	default:
-		dev_warn(&(chip->client)->dev, "set_config  default  port=%x    mask=%x", port, mask);
+#ifdef DEBUG
+		dev_warn(&(chip->client)->dev, "_set_config  default");
+#endif
 		ret = -ENOTSUPP;
 		break;
 	}
@@ -432,12 +458,16 @@ out:
 
 int cy8c95xx_gpio_set_config(struct gpio_chip *gc, unsigned off, unsigned long config)
 {
-	//struct cy8c95xx_chip *chip = gpiochip_get_data(gc);
+	struct cy8c95xx_chip *chip = gpiochip_get_data(gc);
 	
 	int8_t port = -1;
 	int8_t number = -1;
 	
 	cy8c95xx_gpio_offset2port(off, &port, &number);
+	
+#ifdef DEBUG
+	dev_warn(&(chip->client)->dev, "set_config %d", config);
+#endif
 	
 	enum pin_config_param param = pinconf_to_config_param(config);
 	int argument = pinconf_to_config_argument(config);
@@ -461,7 +491,9 @@ static int cy8c95xx_gpio_get_value(struct gpio_chip *gc, unsigned off)
 	
 	mutex_lock(&chip->lock);
 	
+#ifdef DEBUG
 	dev_warn(&(chip->client)->dev, "get_value   port=%x    mask=%x  intMask=%x", port, mask, chip->irqMaskReg_shadow[port]);
+#endif
 	if(chip->irqMaskReg_shadow[port] & mask){		// if interrupt disabled for this pin, get value from i2c, else return shadow value which should be up to date
 		
 		uint8_t data = 0x00;
@@ -501,6 +533,10 @@ static void cy8c95xx_gpio_set_value(struct gpio_chip *gc, unsigned off, int val)
 	
 	mask = 1 << number;
 	
+#ifdef DEBUG
+	dev_err(&(chip->client)->dev, "%s , %d:%d\n", "gpio_set_value", port, number);
+#endif
+	
 	//if(port == -1) goto out_failed;  // should not be necessary
 	
 	mutex_lock(&chip->lock);
@@ -532,6 +568,10 @@ static void cy8c95xx_gpio_set_multiple(struct gpio_chip *gc, unsigned long *mask
 	int ret;
 	struct cy8c95xx_chip *chip = gpiochip_get_data(gc);
 	
+#ifdef DEBUG
+	dev_err(&(chip->client)->dev, "%s\n", "gpio_set_value_multiple");
+#endif
+	
 	for(i=0; i < 8; i++){
 		portMask = (*mask >> (8*i));
 		portBits = (*bits >> (8*i));
@@ -539,6 +579,10 @@ static void cy8c95xx_gpio_set_multiple(struct gpio_chip *gc, unsigned long *mask
 		if(portMask){
 			finalVal = chip->outReg_shadow[i] & (~portMask);
 			finalVal = finalVal | portBits;
+			
+#ifdef DEBUG
+			dev_err(&(chip->client)->dev, "%s , port %d mask 0x%x bits 0x%x  finalVal 0x%x\n", "gpio_set_value_multiple", i, portMask, portBits, finalVal);
+#endif
 			
 			mutex_lock(&chip->lock);
 			
@@ -568,6 +612,10 @@ static int cy8c95xx_gpio_get_direction(struct gpio_chip *gc, unsigned off)
 	
 	uint8_t rawDir = (chip->dirReg_shadow[port] & mask) >> number;
 	
+#ifdef DEBUG
+	dev_warn(&(chip->client)->dev, "get_direction  port=%x    mask=%x  rawdir=%x", port, mask, rawDir);
+#endif
+	
 	return rawDir;
 }
 
@@ -584,6 +632,10 @@ static int cy8c95xx_gpio_direction_input(struct gpio_chip *gc, unsigned off)
 	cy8c95xx_gpio_offset2port(off, &port, &number);
 	
 	uint8_t mask = 1 << number;
+	
+#ifdef DEBUG
+	dev_warn(&(chip->client)->dev, "set_direction_input  port=%x    mask=%x", port, mask);
+#endif
 
 	/*
 	 * Open-drain pins must be set to high impedance (which is
@@ -636,11 +688,9 @@ static int cy8c95xx_gpio_direction_output(struct gpio_chip *gc, unsigned off, in
 	
 	uint8_t mask = 1 << number;
 
-	/*
-	 * Open-drain pins must be set to high impedance (which is
-	 * equivalent to output-high) to be turned into an input.
-	 */
-	//if(port == -1) goto out; should not be necessary
+#ifdef DEBUG
+	dev_warn(&(chip->client)->dev, "set_direction_output  port=%x    mask=%x", port, mask);
+#endif
 	
 	ret = _cy8c95xx_gpio_set_config(gc, off, PIN_CONFIG_DRIVE_PUSH_PULL, 0);
 	if (ret){
