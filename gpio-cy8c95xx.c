@@ -1132,12 +1132,14 @@ static int cy8c95xx_probe(struct i2c_client *client,
 	uint8_t writeData = 0x06;
 	uint8_t readData[146] = {};
 	ret = cy8c95xx_writeReadReg(chip, CONFIG_REG_BASE, COMMAND_OFFSET, &writeData, 1, readData, 146);
+	if(ret) goto out;
 	
 	memcpy(chip->outReg_shadow, readData, 8);
 	memcpy(chip->irqMaskReg_shadow, &readData[0x08], 8);
 	memcpy(chip->dirReg_shadow, &readData[0x20], 8);
 	
 	ret = cy8c95xx_readReg(chip, INPUT_REG_BASE, PORT0_OFFSET, chip->inReg_shadow, 8);
+	if(ret) goto out;
 	
 	for(int i=0; i<8; i++){
 		chip->pullUpReg_shadow[i] = readData[0x28 + (i*7)];
