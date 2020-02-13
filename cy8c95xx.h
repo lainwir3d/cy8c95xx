@@ -4,7 +4,7 @@
 
 #define CONFIG_GPIO_CY8C95XX_IRQ
 #define FAST_INTERRUPT
-//#define IRQ_VALUE_PREFETCH
+#define IRQ_VALUE_PREFETCH
 //#define DEBUG
 
 /* platform data for the MAX732x 8/16-bit I/O expander driver */

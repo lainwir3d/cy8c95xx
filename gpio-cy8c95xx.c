@@ -869,15 +869,66 @@ static void cy8c95xx_irq_pending(struct cy8c95xx_chip *chip, uint8_t pending[8])
 
 	uint8_t irqStatus[8] = {0};
 #ifdef FAST_INTERRUPT
-    int nbRegReq = 0;
-    for(int i=0; i<8; i++) if(chip->irqMaskReg_shadow[i] != 0xff) nbRegReq += 1;
+    
+    // optimize bulk request
+    uint8_t startReg = 0;
+    uint8_t nbContinousRegReq = 0;
+    uint8_t nbRegReq = 0;
+    for(int i=0; i<8; i++){
+        bool hasInt = 0;
+        if(chip->irqMaskReg_shadow[i] != 0xff){
+            hasInt = 1;
+        }
+        
+        if(!nbRegReq && hasInt){
+            startReg = i;
+            
+            nbRegReq = 1;
+            nbContinousRegReq = 1;
+        }else if(hasInt){
+            nbRegReq++;
+            nbContinousRegReq = 1 + i - startReg;
+        }
+    }
     
     if(nbRegReq > 2){
-        dev_warn(&(chip->client)->dev, "Using optimized path for interrupt\n");
-        ret = cy8c95xx_readReg(chip, INTERRUPT_REG_BASE, 0, irqStatus, 8);
+#ifdef DEBUG
+        dev_warn(&(chip->client)->dev, "Using optimized path for interrupt. startReg=%d length=%d\n", startReg, nbContinousRegReq);
+#endif
+        ret = cy8c95xx_readReg(chip, INTERRUPT_REG_BASE, startReg, &irqStatus[startReg], nbContinousRegReq);
         if(ret){
             return;
         }
+        
+#ifdef IRQ_VALUE_PREFETCH
+        uint8_t prefetchStartReg = startReg;
+        uint8_t prefetchContinuousRegReq = 0;
+        for(int i=startReg; i < startReg + nbContinousRegReq; i++){
+            bool hasInt = 0;
+            if(irqStatus[i]){
+#ifdef DEBUG
+                dev_warn(&(chip->client)->dev, "GPIO chip %d has some interrupt flags.\n", i);
+#endif
+                hasInt = 1;
+            }
+            
+            if(!prefetchContinuousRegReq && hasInt){
+                prefetchStartReg = i;
+                prefetchContinuousRegReq = 1;
+            }else if(hasInt){
+               prefetchContinuousRegReq = 1 + i - prefetchStartReg;
+            }
+        }
+        
+#ifdef DEBUG
+        dev_warn(&(chip->client)->dev, "Using interrupt prefetch. startReg=%d length=%d\n", prefetchStartReg, prefetchContinuousRegReq);
+#endif
+        
+        ret = cy8c95xx_readReg(chip, INPUT_REG_BASE, prefetchStartReg, &chip->inReg_shadow[prefetchStartReg], prefetchContinuousRegReq); // update input shadow register
+        if(ret){
+            dev_err(&(chip->client)->dev, "%s failed, port %d, length %d, %d\n", "interrupt input port read", prefetchStartReg, prefetchContinuousRegReq, ret);
+        }
+#endif
     }else{
         for(int i=0; i<8; i++){
             if(chip->irqMaskReg_shadow[i] != 0xff){ // if there is some interrupt activated on this port
