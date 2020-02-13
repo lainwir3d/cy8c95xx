@@ -494,7 +494,11 @@ static int cy8c95xx_gpio_get_value(struct gpio_chip *gc, unsigned off)
 #ifdef DEBUG
 	dev_warn(&(chip->client)->dev, "get_value   port=%x    mask=%x  intMask=%x", port, mask, chip->irqMaskReg_shadow[port]);
 #endif
-	if(chip->irqMaskReg_shadow[port] & mask){		// if interrupt disabled for this pin, get value from i2c, else return shadow value which should be up to date
+	
+#ifdef IRQ_VALUE_PREFETCH
+	if(chip->irqMaskReg_shadow[port] & mask)	// if interrupt disabled for this pin, get value from i2c, else return shadow value which should be up to date
+#endif
+	{		
 		
 		uint8_t data = 0x00;
 		ret = cy8c95xx_readReg(chip, INPUT_REG_BASE, port, &data, 1);
@@ -502,7 +506,9 @@ static int cy8c95xx_gpio_get_value(struct gpio_chip *gc, unsigned off)
 			goto out;
 		}
 		
+#ifdef DEBUG
 		dev_warn(&(chip->client)->dev, "get_value from i2c: 0x%x", data);
+#endif
 		chip->inReg_shadow[port] = data;
 	}
 		
@@ -863,32 +869,51 @@ static void cy8c95xx_irq_pending(struct cy8c95xx_chip *chip, uint8_t pending[8])
 
 	uint8_t irqStatus[8] = {0};
 #ifdef FAST_INTERRUPT
-	for(int i=0; i<8; i++){
-		if(chip->irqMaskReg_shadow[i] != 0xff){ // if there is some interrupt activated on this port
-			ret = cy8c95xx_readReg(chip, INTERRUPT_REG_BASE, i, &irqStatus[i], 1);
-			if(ret){
-				dev_err(&(chip->client)->dev, "%s failed, port %d, %d\n", "interrupt pending check", i, ret);
-			}
-			
-			if(irqStatus[i]){ // if there is a interrupt flag on this port
-				ret = cy8c95xx_readReg(chip, INPUT_REG_BASE, i, &chip->inReg_shadow[i], 1); // update input shadow register
-				if(ret){
-					dev_err(&(chip->client)->dev, "%s failed, port %d, %d\n", "interrupt input port read", i, ret);
-				}
-				
-			}
-		}
-	}
+    int nbRegReq = 0;
+    for(int i=0; i<8; i++) if(chip->irqMaskReg_shadow[i] != 0xff) nbRegReq += 1;
+    
+    if(nbRegReq > 2){
+        dev_warn(&(chip->client)->dev, "Using optimized path for interrupt\n");
+        ret = cy8c95xx_readReg(chip, INTERRUPT_REG_BASE, 0, irqStatus, 8);
+        if(ret){
+            return;
+        }
+    }else{
+        for(int i=0; i<8; i++){
+            if(chip->irqMaskReg_shadow[i] != 0xff){ // if there is some interrupt activated on this port
+                ret = cy8c95xx_readReg(chip, INTERRUPT_REG_BASE, i, &irqStatus[i], 1);
+                if(ret){
+                    dev_err(&(chip->client)->dev, "%s failed, port %d, %d\n", "interrupt pending check", i, ret);
+                }
+                
+                if(irqStatus[i]){ // if there is a interrupt flag on this port
+#ifdef DEBUG
+                    dev_err(&(chip->client)->dev, "%s, port %d\n", "interrupt input port read", i);
+#endif
+                    
+#ifdef IRQ_VALUE_PREFETCH
+                    ret = cy8c95xx_readReg(chip, INPUT_REG_BASE, i, &chip->inReg_shadow[i], 1); // update input shadow register
+                    if(ret){
+                        dev_err(&(chip->client)->dev, "%s failed, port %d, %d\n", "interrupt input port read", i, ret);
+                    }
+#endif
+                    
+                }
+            }
+        }
+    }
 #else
 	ret = cy8c95xx_readReg(chip, INTERRUPT_REG_BASE, 0, irqStatus, 8);
 	if(ret){
 		return;
 	}
-	
+
+#ifdef IRQ_VALUE_PREFETCH
 	ret = cy8c95xx_readReg(chip, INPUT_REG_BASE, 0, chip->inReg_shadow, 8);
 	if(ret){
 		return;
 	}
+#endif
 #endif
 	
 	for(int i=0; i<8; i++){
