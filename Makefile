@@ -1,4 +1,4 @@
-ccflags-y := -std=gnu99 -Wno-declaration-after-statement
+ccflags-y :=  -O2 -std=gnu99 -Wno-declaration-after-statement
 
 obj-m += gpio-cy8c95xx.o
 
