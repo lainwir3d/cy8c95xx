@@ -496,7 +496,7 @@ static int cy8c95xx_gpio_get_value(struct gpio_chip *gc, unsigned off)
 #endif
 	
 #ifdef IRQ_VALUE_PREFETCH
-	if(chip->irqMaskReg_shadow[port] & mask)	// if interrupt disabled for this pin, get value from i2c, else return shadow value which should be up to date
+	if((chip->irqMaskReg_shadow[port] & mask) && !(mask & chip->irq_trig_raise[port] & chip->irq_trig_fall[port]))	// if interrupt disabled for this pin, get value from i2c, else return shadow value which should be up to date
 #endif
 	{		
 		
@@ -905,7 +905,7 @@ static void cy8c95xx_irq_pending(struct cy8c95xx_chip *chip, uint8_t pending[8])
         uint8_t prefetchContinuousRegReq = 0;
         for(int i=startReg; i < startReg + nbContinousRegReq; i++){
             bool hasInt = 0;
-            if(irqStatus[i]){
+            if(irqStatus[i] && (chip->irq_trig_fall[i] & chip->irq_trig_raise[i] )){   // we prefetch only regs that has some pins both in rising edge and falling edge trigger
 #ifdef DEBUG
                 dev_warn(&(chip->client)->dev, "GPIO chip %d has some interrupt flags.\n", i);
 #endif
@@ -1152,6 +1152,7 @@ static int cy8c95xx_setup_gpio(struct cy8c95xx_chip *chip,
 	gc->direction_output = cy8c95xx_gpio_direction_output;
 	gc->set = cy8c95xx_gpio_set_value;
 	gc->set_multiple = cy8c95xx_gpio_set_multiple;
+    // TODO: implement get_multiple
 	gc->set_config = cy8c95xx_gpio_set_config;
 	
 	gc->get = cy8c95xx_gpio_get_value;
@@ -1225,12 +1226,14 @@ static int cy8c95xx_probe(struct i2c_client *client,
 		chip->StrongReg_shadow[i] = readData[0x2c + (i*7)];
 		chip->SlowStrongReg_shadow[i] = readData[0x2d + (i*7)];
 		chip->HighZReg_shadow[i] = readData[0x2e + (i*7)];
-		
+
+#ifdef DEBUG
 		dev_warn(&client->dev, "inReg_shadow[%d] =  0x%x", i, chip->inReg_shadow[i]);
 		dev_warn(&client->dev, "dirReg_shadow[%d] =  0x%x", i, chip->dirReg_shadow[i]);
 		dev_warn(&client->dev, "pullUpReg_shadow[%d] =  0x%x", i, chip->pullUpReg_shadow[i]);
 		dev_warn(&client->dev, "StrongReg_shadow[%d] =  0x%x", i, chip->StrongReg_shadow[i]);
 		dev_warn(&client->dev, "HighZReg_shadow[%d] =  0x%x", i, chip->HighZReg_shadow[i]);
+#endif
 	}
 	
 	ret = gpiochip_add_data(&chip->gpio_chip, chip);
